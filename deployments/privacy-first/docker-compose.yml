@@ -1,0 +1,457 @@
+version: "3.8"
+
+# Privacy-First Stack - Full Self-Hosted Setup
+# For churches prioritizing data sovereignty and privacy
+#
+# What's Included:
+# - WordPress (website)
+# - ChurchCRM (ChMS)
+# - Nextcloud + OnlyOffice (files, docs, calendar)
+# - Listmonk (email newsletters)
+# - Jitsi Meet (video conferencing)
+# - Vaultwarden (password management)
+# - Uptime Kuma (monitoring)
+# - Duplicati (encrypted backups)
+#
+# Requirements:
+# - 4GB RAM minimum, 8GB recommended
+# - 100GB+ storage
+# - Multiple subdomains
+# - Docker and Docker Compose installed
+# - Separate Mail-in-a-Box server for email
+
+services:
+  # Traefik reverse proxy - handles SSL and routing
+  traefik:
+    image: traefik:v2.10
+    container_name: privacy-first-traefik
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@example.com}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      - "--ping=true"
+      - "--accesslog=true"
+      - "--accesslog.filepath=/var/log/traefik/access.log"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "10000:10000/udp"  # Jitsi video
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./letsencrypt:/letsencrypt
+      - ./traefik-logs:/var/log/traefik
+    networks:
+      - privacy-first
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # WordPress - Church website
+  wordpress:
+    image: wordpress:latest
+    container_name: privacy-first-wordpress
+    environment:
+      WORDPRESS_DB_HOST: wordpress-db
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: ${WORDPRESS_DB_PASSWORD:-changeme}
+      WORDPRESS_DB_NAME: wordpress
+    volumes:
+      - wordpress-data:/var/www/html
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.wordpress.rule=Host(`${WORDPRESS_DOMAIN:-www.example.com}`)"
+      - "traefik.http.routers.wordpress.entrypoints=websecure"
+      - "traefik.http.routers.wordpress.tls.certresolver=letsencrypt"
+      - "traefik.http.services.wordpress.loadbalancer.server.port=80"
+      # Security headers
+      - "traefik.http.middlewares.wordpress-headers.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.wordpress-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.routers.wordpress.middlewares=wordpress-headers"
+    networks:
+      - privacy-first
+    depends_on:
+      - wordpress-db
+    restart: unless-stopped
+
+  wordpress-db:
+    image: mysql:8.0
+    container_name: privacy-first-wordpress-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-changeme}
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: ${WORDPRESS_DB_PASSWORD:-changeme}
+    volumes:
+      - wordpress-db-data:/var/lib/mysql
+    networks:
+      - privacy-first
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password
+
+  # ChurchCRM - Church Management
+  churchcrm:
+    image: churchcrm/crm:latest
+    container_name: privacy-first-churchcrm
+    environment:
+      CRM_DB_HOST: churchcrm-db
+      CRM_DB_NAME: churchcrm
+      CRM_DB_USER: churchcrm
+      CRM_DB_PASS: ${CHURCHCRM_DB_PASSWORD:-changeme}
+    volumes:
+      - churchcrm-data:/var/www/churchcrm
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.churchcrm.rule=Host(`${CHURCHCRM_DOMAIN:-crm.example.com}`)"
+      - "traefik.http.routers.churchcrm.entrypoints=websecure"
+      - "traefik.http.routers.churchcrm.tls.certresolver=letsencrypt"
+      - "traefik.http.services.churchcrm.loadbalancer.server.port=80"
+    networks:
+      - privacy-first
+    depends_on:
+      - churchcrm-db
+    restart: unless-stopped
+
+  churchcrm-db:
+    image: mariadb:10.6
+    container_name: privacy-first-churchcrm-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD_2:-changeme2}
+      MYSQL_DATABASE: churchcrm
+      MYSQL_USER: churchcrm
+      MYSQL_PASSWORD: ${CHURCHCRM_DB_PASSWORD:-changeme}
+    volumes:
+      - churchcrm-db-data:/var/lib/mysql
+    networks:
+      - privacy-first
+    restart: unless-stopped
+
+  # Nextcloud - File storage and collaboration
+  nextcloud:
+    image: nextcloud:latest
+    container_name: privacy-first-nextcloud
+    environment:
+      MYSQL_HOST: nextcloud-db
+      MYSQL_DATABASE: nextcloud
+      MYSQL_USER: nextcloud
+      MYSQL_PASSWORD: ${NEXTCLOUD_DB_PASSWORD:-changeme}
+      NEXTCLOUD_ADMIN_USER: ${NEXTCLOUD_ADMIN_USER:-admin}
+      NEXTCLOUD_ADMIN_PASSWORD: ${NEXTCLOUD_ADMIN_PASSWORD:-changeme}
+      NEXTCLOUD_TRUSTED_DOMAINS: ${NEXTCLOUD_DOMAIN:-cloud.example.com}
+      REDIS_HOST: nextcloud-redis
+    volumes:
+      - nextcloud-data:/var/www/html
+      - nextcloud-apps:/var/www/html/custom_apps
+      - nextcloud-config:/var/www/html/config
+      - nextcloud-files:/var/www/html/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nextcloud.rule=Host(`${NEXTCLOUD_DOMAIN:-cloud.example.com}`)"
+      - "traefik.http.routers.nextcloud.entrypoints=websecure"
+      - "traefik.http.routers.nextcloud.tls.certresolver=letsencrypt"
+      - "traefik.http.services.nextcloud.loadbalancer.server.port=80"
+      # WebDAV fix
+      - "traefik.http.middlewares.nextcloud-dav.replacepathregex.regex=^/.well-known/(card|cal)dav"
+      - "traefik.http.middlewares.nextcloud-dav.replacepathregex.replacement=/remote.php/dav/"
+      - "traefik.http.routers.nextcloud.middlewares=nextcloud-dav"
+    networks:
+      - privacy-first
+    depends_on:
+      - nextcloud-db
+      - nextcloud-redis
+    restart: unless-stopped
+
+  nextcloud-db:
+    image: mariadb:10.6
+    container_name: privacy-first-nextcloud-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD_3:-changeme3}
+      MYSQL_DATABASE: nextcloud
+      MYSQL_USER: nextcloud
+      MYSQL_PASSWORD: ${NEXTCLOUD_DB_PASSWORD:-changeme}
+    volumes:
+      - nextcloud-db-data:/var/lib/mysql
+    networks:
+      - privacy-first
+    restart: unless-stopped
+
+  nextcloud-redis:
+    image: redis:alpine
+    container_name: privacy-first-nextcloud-redis
+    volumes:
+      - nextcloud-redis-data:/data
+    networks:
+      - privacy-first
+    restart: unless-stopped
+
+  # OnlyOffice - Document editing
+  onlyoffice:
+    image: onlyoffice/documentserver:latest
+    container_name: privacy-first-onlyoffice
+    environment:
+      JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-changeme}
+      JWT_ENABLED: "true"
+    volumes:
+      - onlyoffice-data:/var/www/onlyoffice/Data
+      - onlyoffice-logs:/var/log/onlyoffice
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.onlyoffice.rule=Host(`${ONLYOFFICE_DOMAIN:-office.example.com}`)"
+      - "traefik.http.routers.onlyoffice.entrypoints=websecure"
+      - "traefik.http.routers.onlyoffice.tls.certresolver=letsencrypt"
+      - "traefik.http.services.onlyoffice.loadbalancer.server.port=80"
+    networks:
+      - privacy-first
+    restart: unless-stopped
+
+  # Listmonk - Email newsletters
+  listmonk:
+    image: listmonk/listmonk:latest
+    container_name: privacy-first-listmonk
+    environment:
+      LISTMONK_app__address: "0.0.0.0:9000"
+      LISTMONK_app__admin_username: ${LISTMONK_ADMIN_USER:-admin}
+      LISTMONK_app__admin_password: ${LISTMONK_ADMIN_PASSWORD:-changeme}
+      LISTMONK_db__host: listmonk-db
+      LISTMONK_db__port: "5432"
+      LISTMONK_db__user: listmonk
+      LISTMONK_db__password: ${LISTMONK_DB_PASSWORD:-changeme}
+      LISTMONK_db__database: listmonk
+      LISTMONK_db__ssl_mode: disable
+      TZ: ${TZ:-America/New_York}
+    volumes:
+      - listmonk-data:/listmonk/uploads
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.listmonk.rule=Host(`${LISTMONK_DOMAIN:-news.example.com}`)"
+      - "traefik.http.routers.listmonk.entrypoints=websecure"
+      - "traefik.http.routers.listmonk.tls.certresolver=letsencrypt"
+      - "traefik.http.services.listmonk.loadbalancer.server.port=9000"
+    networks:
+      - privacy-first
+    depends_on:
+      - listmonk-db
+    restart: unless-stopped
+    command: [sh, -c, "./listmonk --install --idempotent && ./listmonk"]
+
+  listmonk-db:
+    image: postgres:15-alpine
+    container_name: privacy-first-listmonk-db
+    environment:
+      POSTGRES_PASSWORD: ${LISTMONK_DB_PASSWORD:-changeme}
+      POSTGRES_USER: listmonk
+      POSTGRES_DB: listmonk
+    volumes:
+      - listmonk-db-data:/var/lib/postgresql/data
+    networks:
+      - privacy-first
+    restart: unless-stopped
+
+  # Jitsi Meet - Video conferencing
+  jitsi-web:
+    image: jitsi/web:stable
+    container_name: privacy-first-jitsi-web
+    environment:
+      - PUBLIC_URL=https://${JITSI_DOMAIN:-meet.example.com}
+      - TZ=${TZ:-America/New_York}
+      - ENABLE_COLIBRI_WEBSOCKET=true
+      - ENABLE_XMPP_WEBSOCKET=true
+    volumes:
+      - jitsi-web-config:/config
+      - jitsi-transcripts:/usr/share/jitsi-meet/transcripts
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jitsi.rule=Host(`${JITSI_DOMAIN:-meet.example.com}`)"
+      - "traefik.http.routers.jitsi.entrypoints=websecure"
+      - "traefik.http.routers.jitsi.tls.certresolver=letsencrypt"
+      - "traefik.http.services.jitsi.loadbalancer.server.port=80"
+    networks:
+      privacy-first:
+        aliases:
+          - meet.jitsi
+    depends_on:
+      - jitsi-prosody
+    restart: unless-stopped
+
+  jitsi-prosody:
+    image: jitsi/prosody:stable
+    container_name: privacy-first-jitsi-prosody
+    environment:
+      - PUBLIC_URL=https://${JITSI_DOMAIN:-meet.example.com}
+      - XMPP_DOMAIN=meet.jitsi
+      - XMPP_AUTH_DOMAIN=auth.meet.jitsi
+      - XMPP_MUC_DOMAIN=muc.meet.jitsi
+      - XMPP_INTERNAL_MUC_DOMAIN=internal-muc.meet.jitsi
+      - TZ=${TZ:-America/New_York}
+    volumes:
+      - jitsi-prosody-config:/config
+      - jitsi-prosody-plugins:/prosody-plugins-custom
+    networks:
+      privacy-first:
+        aliases:
+          - xmpp.meet.jitsi
+    restart: unless-stopped
+
+  jitsi-jicofo:
+    image: jitsi/jicofo:stable
+    container_name: privacy-first-jitsi-jicofo
+    environment:
+      - XMPP_DOMAIN=meet.jitsi
+      - XMPP_AUTH_DOMAIN=auth.meet.jitsi
+      - XMPP_MUC_DOMAIN=muc.meet.jitsi
+      - XMPP_INTERNAL_MUC_DOMAIN=internal-muc.meet.jitsi
+      - TZ=${TZ:-America/New_York}
+    volumes:
+      - jitsi-jicofo-config:/config
+    networks:
+      - privacy-first
+    depends_on:
+      - jitsi-prosody
+    restart: unless-stopped
+
+  jitsi-jvb:
+    image: jitsi/jvb:stable
+    container_name: privacy-first-jitsi-jvb
+    environment:
+      - PUBLIC_URL=https://${JITSI_DOMAIN:-meet.example.com}
+      - XMPP_AUTH_DOMAIN=auth.meet.jitsi
+      - XMPP_INTERNAL_MUC_DOMAIN=internal-muc.meet.jitsi
+      - JVB_PORT=10000
+      - JVB_STUN_SERVERS=meet-jit-si-turnrelay.jitsi.net:443
+      - TZ=${TZ:-America/New_York}
+    volumes:
+      - jitsi-jvb-config:/config
+    ports:
+      - "10000:10000/udp"
+    networks:
+      - privacy-first
+    depends_on:
+      - jitsi-prosody
+    restart: unless-stopped
+
+  # Vaultwarden - Password management
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: privacy-first-vaultwarden
+    environment:
+      SIGNUPS_ALLOWED: ${VAULTWARDEN_SIGNUPS:-false}
+      ADMIN_TOKEN: ${VAULTWARDEN_ADMIN_TOKEN:-changeme}
+      DOMAIN: https://${VAULTWARDEN_DOMAIN:-pass.example.com}
+      SMTP_HOST: ${SMTP_HOST:-mail.example.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURITY: ${SMTP_SECURE:-starttls}
+      SMTP_USERNAME: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: noreply@${MAIL_DOMAIN:-example.com}
+    volumes:
+      - vaultwarden-data:/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.vaultwarden.rule=Host(`${VAULTWARDEN_DOMAIN:-pass.example.com}`)"
+      - "traefik.http.routers.vaultwarden.entrypoints=websecure"
+      - "traefik.http.routers.vaultwarden.tls.certresolver=letsencrypt"
+      - "traefik.http.services.vaultwarden.loadbalancer.server.port=80"
+    networks:
+      - privacy-first
+    restart: unless-stopped
+
+  # Uptime Kuma - Monitoring
+  uptime-kuma:
+    image: louislam/uptime-kuma:latest
+    container_name: privacy-first-uptime-kuma
+    volumes:
+      - uptime-kuma-data:/app/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.uptime-kuma.rule=Host(`${UPTIME_DOMAIN:-status.example.com}`)"
+      - "traefik.http.routers.uptime-kuma.entrypoints=websecure"
+      - "traefik.http.routers.uptime-kuma.tls.certresolver=letsencrypt"
+      - "traefik.http.services.uptime-kuma.loadbalancer.server.port=3001"
+    networks:
+      - privacy-first
+    restart: unless-stopped
+
+  # Duplicati - Encrypted backups
+  duplicati:
+    image: lscr.io/linuxserver/duplicati:latest
+    container_name: privacy-first-duplicati
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ:-America/New_York}
+    volumes:
+      - duplicati-config:/config
+      - duplicati-backups:/backups
+      # Mount all data volumes for backup access
+      - wordpress-data:/source/wordpress:ro
+      - churchcrm-data:/source/churchcrm:ro
+      - nextcloud-files:/source/nextcloud:ro
+      - vaultwarden-data:/source/vaultwarden:ro
+      - listmonk-data:/source/listmonk:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.duplicati.rule=Host(`${DUPLICATI_DOMAIN:-backup.example.com}`)"
+      - "traefik.http.routers.duplicati.entrypoints=websecure"
+      - "traefik.http.routers.duplicati.tls.certresolver=letsencrypt"
+      - "traefik.http.services.duplicati.loadbalancer.server.port=8200"
+    networks:
+      - privacy-first
+    restart: unless-stopped
+
+  # Watchtower - Automatic updates (with caution)
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: privacy-first-watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_POLL_INTERVAL=604800  # Weekly (7 days)
+      - WATCHTOWER_NOTIFICATIONS=email
+      - WATCHTOWER_NOTIFICATION_EMAIL_FROM=${WATCHTOWER_EMAIL_FROM:-admin@example.com}
+      - WATCHTOWER_NOTIFICATION_EMAIL_TO=${WATCHTOWER_EMAIL_TO:-admin@example.com}
+      - WATCHTOWER_NOTIFICATION_EMAIL_SERVER=${WATCHTOWER_EMAIL_SERVER:-smtp.example.com}
+      - WATCHTOWER_NOTIFICATION_EMAIL_SERVER_PORT=${WATCHTOWER_EMAIL_PORT:-587}
+      - WATCHTOWER_NOTIFICATION_EMAIL_SERVER_USER=${WATCHTOWER_EMAIL_USER}
+      - WATCHTOWER_NOTIFICATION_EMAIL_SERVER_PASSWORD=${WATCHTOWER_EMAIL_PASSWORD}
+      # Only update during maintenance window (Sunday 2-4 AM)
+      - WATCHTOWER_SCHEDULE=0 0 2 * * 0
+    restart: unless-stopped
+
+networks:
+  privacy-first:
+    driver: bridge
+
+volumes:
+  wordpress-data:
+  wordpress-db-data:
+  churchcrm-data:
+  churchcrm-db-data:
+  nextcloud-data:
+  nextcloud-apps:
+  nextcloud-config:
+  nextcloud-files:
+  nextcloud-db-data:
+  nextcloud-redis-data:
+  onlyoffice-data:
+  onlyoffice-logs:
+  listmonk-data:
+  listmonk-db-data:
+  jitsi-web-config:
+  jitsi-transcripts:
+  jitsi-prosody-config:
+  jitsi-prosody-plugins:
+  jitsi-jicofo-config:
+  jitsi-jvb-config:
+  vaultwarden-data:
+  uptime-kuma-data:
+  duplicati-config:
+  duplicati-backups:
