@@ -1,0 +1,53 @@
+name: New Project
+about: Suggest a new open-source tool for the list
+title: '[NEW] Tool Name'
+labels: new-project
+assignees: ''
+
+---
+
+## Tool Name
+<!-- e.g., "ChurchCRM" -->
+
+## Category
+<!-- Which category? church-management / presentation / communication / etc. -->
+
+## License
+<!-- e.g., MIT, GPL-3.0, Apache-2.0 -->
+
+## GitHub Repository
+<!-- https://github.com/owner/repo -->
+
+## Website/Demo
+<!-- https://example.com -->
+
+## What Problem Does It Solve?
+<!-- One sentence -->
+
+## Why Recommend It?
+<!-- 2-3 specific benefits for churches -->
+
+## Your Experience
+- [ ] I've personally used this at my church
+- [ ] I've tested the demo/installation
+- [ ] I've read the docs but haven't used it
+
+## Skill Level Required
+<!-- Beginner / Intermediate / Advanced -->
+
+## Estimated Costs
+- Hosting: $X/month or "None (desktop app)"
+- Setup time: X hours
+- Other costs:
+
+## Maintenance Status Check
+- [ ] Last commit within 6 months
+- [ ] Last commit within 12 months
+- [ ] Issues are responded to
+- [ ] Documentation is current
+
+## Alternatives Considered
+<!-- What else did you evaluate and why did you choose this? -->
+
+## Additional Context
+<!-- Anything else we should know? -->

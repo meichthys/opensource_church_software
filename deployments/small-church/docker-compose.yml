@@ -1,0 +1,284 @@
+version: "3.8"
+
+# Small Church Stack - Balanced Setup
+# For established churches with 50-200 members
+# 
+# What's Included:
+# - WordPress (website + sermons)
+# - ChurchCRM (ChMS with check-in)
+# - Nextcloud (file storage, document collaboration)
+# - Listmonk (email newsletters)
+# - Uptime Kuma (monitoring)
+#
+# Requirements:
+# - 2GB RAM minimum, 4GB recommended
+# - Single domain with subdomains
+# - Docker and Docker Compose installed
+
+services:
+  # Traefik reverse proxy
+  traefik:
+    image: traefik:v2.10
+    container_name: small-church-traefik
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@example.com}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      - "--ping=true"
+      - "--accesslog=true"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./letsencrypt:/letsencrypt
+      - ./traefik/access.log:/var/log/traefik/access.log
+    networks:
+      - small-church
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # WordPress - Website
+  wordpress:
+    image: wordpress:latest
+    container_name: small-church-wordpress
+    environment:
+      WORDPRESS_DB_HOST: wordpress-db
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: ${WORDPRESS_DB_PASSWORD:-changeme}
+      WORDPRESS_DB_NAME: wordpress
+    volumes:
+      - wordpress-data:/var/www/html
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.wordpress.rule=Host(`${WORDPRESS_DOMAIN:-www.example.com}`)"
+      - "traefik.http.routers.wordpress.entrypoints=websecure"
+      - "traefik.http.routers.wordpress.tls.certresolver=letsencrypt"
+      - "traefik.http.services.wordpress.loadbalancer.server.port=80"
+    networks:
+      - small-church
+    depends_on:
+      - wordpress-db
+    restart: unless-stopped
+
+  # WordPress Database
+  wordpress-db:
+    image: mysql:8.0
+    container_name: small-church-wordpress-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-changeme}
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: ${WORDPRESS_DB_PASSWORD:-changeme}
+    volumes:
+      - wordpress-db-data:/var/lib/mysql
+    networks:
+      - small-church
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password
+
+  # ChurchCRM - Church Management
+  churchcrm:
+    image: churchcrm/crm:latest
+    container_name: small-church-churchcrm
+    environment:
+      CRM_DB_HOST: churchcrm-db
+      CRM_DB_NAME: churchcrm
+      CRM_DB_USER: churchcrm
+      CRM_DB_PASS: ${CHURCHCRM_DB_PASSWORD:-changeme}
+    volumes:
+      - churchcrm-data:/var/www/churchcrm
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.churchcrm.rule=Host(`${CHURCHCRM_DOMAIN:-crm.example.com}`)"
+      - "traefik.http.routers.churchcrm.entrypoints=websecure"
+      - "traefik.http.routers.churchcrm.tls.certresolver=letsencrypt"
+      - "traefik.http.services.churchcrm.loadbalancer.server.port=80"
+    networks:
+      - small-church
+    depends_on:
+      - churchcrm-db
+    restart: unless-stopped
+
+  # ChurchCRM Database
+  churchcrm-db:
+    image: mariadb:10.6
+    container_name: small-church-churchcrm-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD_2:-changeme2}
+      MYSQL_DATABASE: churchcrm
+      MYSQL_USER: churchcrm
+      MYSQL_PASSWORD: ${CHURCHCRM_DB_PASSWORD:-changeme}
+    volumes:
+      - churchcrm-db-data:/var/lib/mysql
+    networks:
+      - small-church
+    restart: unless-stopped
+
+  # Nextcloud - File storage and collaboration
+  nextcloud:
+    image: nextcloud:latest
+    container_name: small-church-nextcloud
+    environment:
+      MYSQL_HOST: nextcloud-db
+      MYSQL_DATABASE: nextcloud
+      MYSQL_USER: nextcloud
+      MYSQL_PASSWORD: ${NEXTCLOUD_DB_PASSWORD:-changeme}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD_3:-changeme3}
+      NEXTCLOUD_ADMIN_USER: ${NEXTCLOUD_ADMIN_USER:-admin}
+      NEXTCLOUD_ADMIN_PASSWORD: ${NEXTCLOUD_ADMIN_PASSWORD:-changeme}
+      NEXTCLOUD_TRUSTED_DOMAINS: ${NEXTCLOUD_DOMAIN:-files.example.com}
+    volumes:
+      - nextcloud-data:/var/www/html
+      - nextcloud-apps:/var/www/html/custom_apps
+      - nextcloud-config:/var/www/html/config
+      - nextcloud-data-files:/var/www/html/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nextcloud.rule=Host(`${NEXTCLOUD_DOMAIN:-files.example.com}`)"
+      - "traefik.http.routers.nextcloud.entrypoints=websecure"
+      - "traefik.http.routers.nextcloud.tls.certresolver=letsencrypt"
+      - "traefik.http.services.nextcloud.loadbalancer.server.port=80"
+      # WebDAV fix for Traefik
+      - "traefik.http.middlewares.nextcloud-dav.replacepathregex.regex=^/.well-known/(card|cal)dav"
+      - "traefik.http.middlewares.nextcloud-dav.replacepathregex.replacement=/remote.php/dav/"
+      - "traefik.http.routers.nextcloud.middlewares=nextcloud-dav"
+    networks:
+      - small-church
+    depends_on:
+      - nextcloud-db
+    restart: unless-stopped
+
+  # Nextcloud Database
+  nextcloud-db:
+    image: mariadb:10.6
+    container_name: small-church-nextcloud-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD_3:-changeme3}
+      MYSQL_DATABASE: nextcloud
+      MYSQL_USER: nextcloud
+      MYSQL_PASSWORD: ${NEXTCLOUD_DB_PASSWORD:-changeme}
+    volumes:
+      - nextcloud-db-data:/var/lib/mysql
+    networks:
+      - small-church
+    restart: unless-stopped
+
+  # Redis for Nextcloud performance
+  nextcloud-redis:
+    image: redis:alpine
+    container_name: small-church-nextcloud-redis
+    volumes:
+      - nextcloud-redis-data:/data
+    networks:
+      - small-church
+    restart: unless-stopped
+
+  # Listmonk - Email newsletters
+  listmonk:
+    image: listmonk/listmonk:latest
+    container_name: small-church-listmonk
+    environment:
+      LISTMONK_app__address: "0.0.0.0:9000"
+      LISTMONK_app__admin_username: ${LISTMONK_ADMIN_USER:-admin}
+      LISTMONK_app__admin_password: ${LISTMONK_ADMIN_PASSWORD:-changeme}
+      LISTMONK_db__host: listmonk-db
+      LISTMONK_db__port: "5432"
+      LISTMONK_db__user: listmonk
+      LISTMONK_db__password: ${LISTMONK_DB_PASSWORD:-changeme}
+      LISTMONK_db__database: listmonk
+      LISTMONK_db__ssl_mode: disable
+      TZ: ${TZ:-America/New_York}
+    volumes:
+      - listmonk-data:/listmonk/uploads
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.listmonk.rule=Host(`${LISTMONK_DOMAIN:-news.example.com}`)"
+      - "traefik.http.routers.listmonk.entrypoints=websecure"
+      - "traefik.http.routers.listmonk.tls.certresolver=letsencrypt"
+      - "traefik.http.services.listmonk.loadbalancer.server.port=9000"
+    networks:
+      - small-church
+    depends_on:
+      - listmonk-db
+    restart: unless-stopped
+    command: [sh, -c, "./listmonk --install --idempotent && ./listmonk"]
+
+  # Listmonk Database
+  listmonk-db:
+    image: postgres:15-alpine
+    container_name: small-church-listmonk-db
+    environment:
+      POSTGRES_PASSWORD: ${LISTMONK_DB_PASSWORD:-changeme}
+      POSTGRES_USER: listmonk
+      POSTGRES_DB: listmonk
+    volumes:
+      - listmonk-db-data:/var/lib/postgresql/data
+    networks:
+      - small-church
+    restart: unless-stopped
+
+  # Uptime Kuma - Monitoring
+  uptime-kuma:
+    image: louislam/uptime-kuma:latest
+    container_name: small-church-uptime-kuma
+    volumes:
+      - uptime-kuma-data:/app/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.uptime-kuma.rule=Host(`${UPTIME_DOMAIN:-status.example.com}`)"
+      - "traefik.http.routers.uptime-kuma.entrypoints=websecure"
+      - "traefik.http.routers.uptime-kuma.tls.certresolver=letsencrypt"
+      - "traefik.http.services.uptime-kuma.loadbalancer.server.port=3001"
+      - "traefik.http.middlewares.uptime-kuma-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+      - "traefik.http.routers.uptime-kuma.middlewares=uptime-kuma-headers"
+    networks:
+      - small-church
+    restart: unless-stopped
+
+  # Watchtower - Automatic container updates
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: small-church-watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_POLL_INTERVAL=86400
+      - WATCHTOWER_NOTIFICATIONS=email
+      - WATCHTOWER_NOTIFICATION_EMAIL_FROM=${WATCHTOWER_EMAIL_FROM:-admin@example.com}
+      - WATCHTOWER_NOTIFICATION_EMAIL_TO=${WATCHTOWER_EMAIL_TO:-admin@example.com}
+      - WATCHTOWER_NOTIFICATION_EMAIL_SERVER=${WATCHTOWER_EMAIL_SERVER:-smtp.gmail.com}
+      - WATCHTOWER_NOTIFICATION_EMAIL_SERVER_PORT=${WATCHTOWER_EMAIL_PORT:-587}
+      - WATCHTOWER_NOTIFICATION_EMAIL_SERVER_USER=${WATCHTOWER_EMAIL_USER}
+      - WATCHTOWER_NOTIFICATION_EMAIL_SERVER_PASSWORD=${WATCHTOWER_EMAIL_PASSWORD}
+    restart: unless-stopped
+
+networks:
+  small-church:
+    driver: bridge
+
+volumes:
+  wordpress-data:
+  wordpress-db-data:
+  churchcrm-data:
+  churchcrm-db-data:
+  nextcloud-data:
+  nextcloud-apps:
+  nextcloud-config:
+  nextcloud-data-files:
+  nextcloud-db-data:
+  nextcloud-redis-data:
+  listmonk-data:
+  listmonk-db-data:
+  uptime-kuma-data:

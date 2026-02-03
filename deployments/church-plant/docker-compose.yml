@@ -1,0 +1,143 @@
+version: "3.8"
+
+# Church Plant Stack - Minimal Setup
+# For new churches with no budget and a volunteer running tech
+# 
+# What's Included:
+# - WordPress (website)
+# - ChurchCRM (basic ChMS)
+# - Adminer (database management)
+#
+# Requirements:
+# - 1GB RAM minimum, 2GB recommended
+# - Single domain with subdomains or paths
+# - Docker and Docker Compose installed
+
+services:
+  # Traefik reverse proxy - handles SSL and routing
+  traefik:
+    image: traefik:v2.10
+    container_name: church-plant-traefik
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@example.com}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./letsencrypt:/letsencrypt
+    networks:
+      - church-plant
+    restart: unless-stopped
+
+  # WordPress - Church website
+  wordpress:
+    image: wordpress:latest
+    container_name: church-plant-wordpress
+    environment:
+      WORDPRESS_DB_HOST: wordpress-db
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: ${WORDPRESS_DB_PASSWORD:-changeme}
+      WORDPRESS_DB_NAME: wordpress
+    volumes:
+      - wordpress-data:/var/www/html
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.wordpress.rule=Host(`${WORDPRESS_DOMAIN:-church.example.com}`)"
+      - "traefik.http.routers.wordpress.entrypoints=websecure"
+      - "traefik.http.routers.wordpress.tls.certresolver=letsencrypt"
+      - "traefik.http.services.wordpress.loadbalancer.server.port=80"
+    networks:
+      - church-plant
+    depends_on:
+      - wordpress-db
+    restart: unless-stopped
+
+  # WordPress Database
+  wordpress-db:
+    image: mysql:8.0
+    container_name: church-plant-wordpress-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-changeme}
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: ${WORDPRESS_DB_PASSWORD:-changeme}
+    volumes:
+      - wordpress-db-data:/var/lib/mysql
+    networks:
+      - church-plant
+    restart: unless-stopped
+
+  # ChurchCRM - Church Management
+  churchcrm:
+    image: churchcrm/crm:latest
+    container_name: church-plant-churchcrm
+    environment:
+      CRM_DB_HOST: churchcrm-db
+      CRM_DB_NAME: churchcrm
+      CRM_DB_USER: churchcrm
+      CRM_DB_PASS: ${CHURCHCRM_DB_PASSWORD:-changeme}
+      CRM_DB_PORT: "3306"
+    volumes:
+      - churchcrm-data:/var/www/churchcrm
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.churchcrm.rule=Host(`${CHURCHCRM_DOMAIN:-crm.church.example.com}`)"
+      - "traefik.http.routers.churchcrm.entrypoints=websecure"
+      - "traefik.http.routers.churchcrm.tls.certresolver=letsencrypt"
+      - "traefik.http.services.churchcrm.loadbalancer.server.port=80"
+    networks:
+      - church-plant
+    depends_on:
+      - churchcrm-db
+    restart: unless-stopped
+
+  # ChurchCRM Database
+  churchcrm-db:
+    image: mariadb:10.6
+    container_name: church-plant-churchcrm-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD_2:-changeme2}
+      MYSQL_DATABASE: churchcrm
+      MYSQL_USER: churchcrm
+      MYSQL_PASSWORD: ${CHURCHCRM_DB_PASSWORD:-changeme}
+    volumes:
+      - churchcrm-db-data:/var/lib/mysql
+    networks:
+      - church-plant
+    restart: unless-stopped
+
+  # Adminer - Database management (optional)
+  adminer:
+    image: adminer:latest
+    container_name: church-plant-adminer
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.adminer.rule=Host(`${ADMINER_DOMAIN:-db.church.example.com}`)"
+      - "traefik.http.routers.adminer.entrypoints=websecure"
+      - "traefik.http.routers.adminer.tls.certresolver=letsencrypt"
+      - "traefik.http.services.adminer.loadbalancer.server.port=8080"
+      # Basic auth protection
+      - "traefik.http.middlewares.adminer-auth.basicauth.users=${ADMINER_AUTH:-admin:$$apr1$$H6uskkkW$$IgXLP6ewTrSuBkTrqE8wj/}"
+      - "traefik.http.routers.adminer.middlewares=adminer-auth"
+    networks:
+      - church-plant
+    restart: unless-stopped
+
+networks:
+  church-plant:
+    driver: bridge
+
+volumes:
+  wordpress-data:
+  wordpress-db-data:
+  churchcrm-data:
+  churchcrm-db-data:

@@ -1,0 +1,45 @@
+name: Weekly Link Check
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday
+  workflow_dispatch:
+
+jobs:
+  check-links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: pip install -r tools/requirements.txt
+      
+      - name: Check links
+        run: python tools/check-links.py
+      
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: link-check-report
+          path: link-check-report.md
+      
+      - name: Create Issue for broken links
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('link-check-report.md', 'utf8');
+            
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🔗 Broken Links Found - ${new Date().toISOString().split('T')[0]}`,
+              body: report,
+              labels: ['broken-links', 'automated']
+            });

@@ -1,0 +1,23 @@
+name: Remove Project
+about: Report an abandoned or unsuitable project
+title: '[REMOVE] Tool Name'
+labels: removal
+assignees: ''
+
+---
+
+## Tool to Remove
+<!-- Link to current listing -->
+
+## Reason for Removal
+- [ ] Repository archived/deleted
+- [ ] No commits in 24+ months
+- [ ] License changed to proprietary
+- [ ] Security issues unaddressed
+- [ ] Other: 
+
+## Evidence
+<!-- Link to archive notice, commit history, etc. -->
+
+## Suggested Replacement
+<!-- Is there an alternative tool churches should use instead? -->

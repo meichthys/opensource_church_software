@@ -1,0 +1,26 @@
+name: Update Project
+about: Refresh information for an existing listing
+title: '[UPDATE] Tool Name'
+labels: update
+assignees: ''
+
+---
+
+## Tool to Update
+<!-- Link to the existing file -->
+
+## What Changed?
+<!-- New version? New features? Pricing? -->
+
+## New Information
+<!-- Paste updated details -->
+
+## Verification
+- [ ] I checked the GitHub repo
+- [ ] I checked the official website
+- [ ] I tested the demo (if available)
+
+## Your Church Context
+<!-- Helps understand use case -->
+- Church size: 
+- How you use this tool:

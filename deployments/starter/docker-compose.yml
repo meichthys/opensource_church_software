@@ -1,0 +1,170 @@
+services:
+  # Traefik - handles HTTPS automatically
+  traefik:
+    image: traefik:v2.10
+    container_name: starter-traefik
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    networks:
+      - church
+    restart: unless-stopped
+
+  # WordPress - Your church website
+  wordpress:
+    image: wordpress:6.4
+    container_name: starter-wordpress
+    environment:
+      WORDPRESS_DB_HOST: wordpress-db
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: ${WORDPRESS_DB_PASSWORD}
+      WORDPRESS_DB_NAME: wordpress
+    volumes:
+      - wordpress-data:/var/www/html
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.wordpress.rule=Host(`${WORDPRESS_DOMAIN}`)"
+      - "traefik.http.routers.wordpress.entrypoints=websecure"
+      - "traefik.http.routers.wordpress.tls.certresolver=letsencrypt"
+    networks:
+      - church
+    depends_on:
+      - wordpress-db
+    restart: unless-stopped
+
+  wordpress-db:
+    image: mysql:8.0
+    container_name: starter-wordpress-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${WORDPRESS_DB_PASSWORD}
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: ${WORDPRESS_DB_PASSWORD}
+    volumes:
+      - wordpress-db-data:/var/lib/mysql
+    networks:
+      - church
+    restart: unless-stopped
+
+  # ChurchCRM - Member management
+  churchcrm:
+    image: churchcrm/crm:latest
+    container_name: starter-churchcrm
+    environment:
+      CRM_DB_HOST: churchcrm-db
+      CRM_DB_NAME: churchcrm
+      CRM_DB_USER: churchcrm
+      CRM_DB_PASS: ${CHURCHCRM_DB_PASSWORD}
+    volumes:
+      - churchcrm-data:/var/www/churchcrm
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.churchcrm.rule=Host(`${CHURCHCRM_DOMAIN}`)"
+      - "traefik.http.routers.churchcrm.entrypoints=websecure"
+      - "traefik.http.routers.churchcrm.tls.certresolver=letsencrypt"
+    networks:
+      - church
+    depends_on:
+      - churchcrm-db
+    restart: unless-stopped
+
+  churchcrm-db:
+    image: mariadb:10.6
+    container_name: starter-churchcrm-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${CHURCHCRM_DB_PASSWORD}
+      MYSQL_DATABASE: churchcrm
+      MYSQL_USER: churchcrm
+      MYSQL_PASSWORD: ${CHURCHCRM_DB_PASSWORD}
+    volumes:
+      - churchcrm-db-data:/var/lib/mysql
+    networks:
+      - church
+    restart: unless-stopped
+
+  # Listmonk - Email newsletters
+  listmonk:
+    image: listmonk/listmonk:latest
+    container_name: starter-listmonk
+    environment:
+      LISTMONK_app__address: "0.0.0.0:9000"
+      LISTMONK_app__admin_username: ${LISTMONK_USER}
+      LISTMONK_app__admin_password: ${LISTMONK_PASSWORD}
+      LISTMONK_db__host: listmonk-db
+      LISTMONK_db__port: "5432"
+      LISTMONK_db__user: listmonk
+      LISTMONK_db__password: ${LISTMONK_DB_PASSWORD}
+      LISTMONK_db__database: listmonk
+      LISTMONK_db__ssl_mode: disable
+    volumes:
+      - listmonk-data:/listmonk/uploads
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.listmonk.rule=Host(`${LISTMONK_DOMAIN}`)"
+      - "traefik.http.routers.listmonk.entrypoints=websecure"
+      - "traefik.http.routers.listmonk.tls.certresolver=letsencrypt"
+      - "traefik.http.services.listmonk.loadbalancer.server.port=9000"
+    networks:
+      - church
+    depends_on:
+      - listmonk-db
+    restart: unless-stopped
+    command: [sh, -c, "./listmonk --install --idempotent && ./listmonk"]
+
+  listmonk-db:
+    image: postgres:15-alpine
+    container_name: starter-listmonk-db
+    environment:
+      POSTGRES_PASSWORD: ${LISTMONK_DB_PASSWORD}
+      POSTGRES_USER: listmonk
+      POSTGRES_DB: listmonk
+    volumes:
+      - listmonk-db-data:/var/lib/postgresql/data
+    networks:
+      - church
+    restart: unless-stopped
+
+  # Vaultwarden - Password manager for staff
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: starter-vaultwarden
+    environment:
+      SIGNUPS_ALLOWED: "false"
+      ADMIN_TOKEN: ${VAULTWARDEN_ADMIN_TOKEN}
+      DOMAIN: https://${VAULTWARDEN_DOMAIN}
+    volumes:
+      - vaultwarden-data:/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.vaultwarden.rule=Host(`${VAULTWARDEN_DOMAIN}`)"
+      - "traefik.http.routers.vaultwarden.entrypoints=websecure"
+      - "traefik.http.routers.vaultwarden.tls.certresolver=letsencrypt"
+    networks:
+      - church
+    restart: unless-stopped
+
+networks:
+  church:
+    driver: bridge
+
+volumes:
+  letsencrypt:
+  wordpress-data:
+  wordpress-db-data:
+  churchcrm-data:
+  churchcrm-db-data:
+  listmonk-data:
+  listmonk-db-data:
+  vaultwarden-data:
