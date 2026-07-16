@@ -50,8 +50,6 @@ Additional details will eventually be added to each software solution (pros/cons
 
 [B1 Church](https://b1.church/)
 
-[Wordpress](https://wordpress.org/)
-
 ### Document Management
 
 [Nextcloud](https://nextcloud.com/)
@@ -70,8 +68,6 @@ Additional details will eventually be added to each software solution (pros/cons
 
 [FreeShow](https://freeshow.app/)
 
-[OpenLP](https://openlp.org/)
-
 ### Live Streaming
 
 [OBS](https://obsproject.com/)
@@ -80,13 +76,9 @@ Additional details will eventually be added to each software solution (pros/cons
 
 [B1 Church](https://b1.church/)
 
-[ChurchCRM](https://churchcrm.io/)
-
 ### Tithing/Offering Management
 
 [B1 Church](https://b1.church/)
-
-[ChurchCRM](https://churchcrm.io/)
 
 ### Bible App
 
