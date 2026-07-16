@@ -48,6 +48,8 @@ Additional details will eventually be added to each software solution (pros/cons
 
 ### Website Management
 
+[B1 Church](https://b1.church/)
+
 [Wordpress](https://wordpress.org/)
 
 ### Document Management
@@ -66,6 +68,8 @@ Additional details will eventually be added to each software solution (pros/cons
 
 ### Presentation
 
+[FreeShow](https://freeshow.app/)
+
 [OpenLP](https://openlp.org/)
 
 ### Live Streaming
@@ -74,9 +78,13 @@ Additional details will eventually be added to each software solution (pros/cons
 
 ### Congregation Management
 
+[B1 Church](https://b1.church/)
+
 [ChurchCRM](https://churchcrm.io/)
 
 ### Tithing/Offering Management
+
+[B1 Church](https://b1.church/)
 
 [ChurchCRM](https://churchcrm.io/)
 
