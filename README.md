@@ -76,6 +76,8 @@ Additional details will eventually be added to each software solution (pros/cons
 
 [B1 Church](https://b1.church/)
 
+[ChurchManager](https://jwattswhat.github.io/ChurchManager/) - A free, open-source Windows system for small congregations, with people and family records, worship and attendance, confidential giving, fund accounting, reports, pastoral follow-ups, assets, projects, and events. [Source](https://github.com/jwattswhat/ChurchManager)
+
 ### Tithing/Offering Management
 
 [B1 Church](https://b1.church/)
